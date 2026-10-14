@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ahpn
+      POSTGRES_PASSWORD: ahpn
+      POSTGRES_DB: ahpn
+    ports:
+      - "5433:5432"
+    volumes:
+      - ahpn_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ahpn -d ahpn"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ahpn_pg:
