@@ -6,6 +6,7 @@ import os
 import sys
 from pathlib import Path
 
+from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
 from ahpn.chunk import chunk_stored_document
@@ -14,11 +15,11 @@ from ahpn.config import (
     API_BASE_URL,
     DEFAULT_CHUNK_CHARS,
     DEFAULT_CHUNK_OVERLAP,
-    DEFAULT_DATABASE_URL,
     DEFAULT_REQUEST_DELAY_SECONDS,
     EXAMPLE_DOCUMENT_ID,
 )
-from ahpn.db import init_db, session_factory
+from ahpn.db import database_url_from_env, init_db, session_factory
+from ahpn.models import Chunk, Document, Page
 from ahpn.ocr import TextractOcr
 from ahpn.scrape import scrape_document
 from ahpn.storage import DocumentStore, LocalDocumentStore, S3DocumentStore
@@ -63,6 +64,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Call Textract again even when OCR lines are already stored",
     )
 
+    show = subparsers.add_parser("show", help="Print a stored document's pages and chunks.")
+    _add_document_id(show)
+    _add_database_arg(show)
+
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -76,6 +81,8 @@ def main(argv: list[str] | None = None) -> int:
             logger.info("database ready")
         elif args.command == "chunk":
             _chunk(args)
+        elif args.command == "show":
+            _show(args)
     except AhpnError as exc:
         logger.error("%s", exc)
         return 1
@@ -117,6 +124,35 @@ def _chunk(args: argparse.Namespace) -> None:
     logger.info("chunks %s", result.chunk_count)
 
 
+def _show(args: argparse.Namespace) -> None:
+    try:
+        with session_factory(args.database_url)() as session:
+            document = session.scalar(select(Document).where(Document.ahpn_id == args.document_id))
+            if document is None:
+                raise AhpnError(f"document {args.document_id} is not in the database; run `ahpn chunk` first")
+            pages = session.scalars(
+                select(Page).where(Page.document_id == document.id).order_by(Page.page_number)
+            ).all()
+            chunks = session.scalars(
+                select(Chunk).where(Chunk.document_id == document.id).order_by(Chunk.chunk_index)
+            ).all()
+    except OperationalError as exc:
+        raise AhpnError(f"could not connect to Postgres. ({exc.orig})") from exc
+    logger.info("document %s %s", document.ahpn_id, document.source_page)
+    for page in pages:
+        logger.info("page %s %s", page.page_number, page.image_key)
+    for chunk in chunks:
+        logger.info(
+            "--- chunk %s, pages %s-%s, %s chars, confidence %.1f",
+            chunk.chunk_index,
+            chunk.page_start,
+            chunk.page_end,
+            chunk.char_count,
+            chunk.confidence,
+        )
+        logger.info("%s", chunk.text)
+
+
 def _store_from_args(args: argparse.Namespace) -> DocumentStore:
     if args.storage == "s3":
         if not args.s3_bucket:
@@ -141,8 +177,8 @@ def _add_document_id(parser: argparse.ArgumentParser) -> None:
 def _add_database_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--database-url",
-        default=os.environ.get("AHPN_DATABASE_URL", DEFAULT_DATABASE_URL),
-        help="SQLAlchemy database URL (or AHPN_DATABASE_URL)",
+        default=database_url_from_env(),
+        help="SQLAlchemy database URL (or AHPN_DATABASE_URL, or AHPN_DB_HOST and related AHPN_DB_* variables)",
     )
 
 
