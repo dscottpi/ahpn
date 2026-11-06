@@ -1,9 +1,22 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import (
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+from ahpn.config import DEFAULT_EMBEDDING_DIMS
 
 
 def _utcnow() -> datetime:
@@ -84,3 +97,23 @@ class Chunk(Base):
     line_refs: Mapped[list] = mapped_column(JSON)
 
     document: Mapped[Document] = relationship(back_populates="chunks")
+    embeddings: Mapped[list[ChunkEmbedding]] = relationship(
+        back_populates="chunk",
+        cascade="all, delete-orphan",
+    )
+
+
+class ChunkEmbedding(Base):
+    """One embedding vector per (chunk, model). Lets models be compared side by side."""
+
+    __tablename__ = "chunk_embeddings"
+    __table_args__ = (UniqueConstraint("chunk_id", "model"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    chunk_id: Mapped[int] = mapped_column(ForeignKey("chunks.id", ondelete="CASCADE"), index=True)
+    model: Mapped[str] = mapped_column(String(128))
+    dims: Mapped[int] = mapped_column(Integer)
+    embedding: Mapped[Any] = mapped_column(Vector(DEFAULT_EMBEDDING_DIMS))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    chunk: Mapped[Chunk] = relationship(back_populates="embeddings")

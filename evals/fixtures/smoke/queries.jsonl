@@ -1,0 +1,15 @@
+{"id": "s1", "text": "detenciones por portacion de arma en Jalapa 1983", "lang": "es", "types": ["place", "conceptual", "number_date"], "source": "hand", "split": "dev"}
+{"id": "s2", "text": "nomina de personal del Cuarto Cuerpo", "lang": "es", "types": ["conceptual"], "source": "hand", "split": "dev"}
+{"id": "s3", "text": "Juan Perez Lopez alias El Gallo", "lang": "es", "types": ["name"], "source": "hand", "split": "dev"}
+{"id": "s4", "text": "desaparicion de Maria Elena Castillo", "lang": "es", "types": ["name", "conceptual"], "source": "hand", "split": "dev"}
+{"id": "s5", "text": "decomiso de pistolas en mercado de Jalapa", "lang": "es", "types": ["place", "conceptual"], "source": "hand", "split": "dev"}
+{"id": "s6", "text": "radiograma refuerzos Jalapa campesinos", "lang": "es", "types": ["place", "conceptual"], "source": "hand", "split": "dev"}
+{"id": "s7", "text": "weapons seizures Quetzaltenango", "lang": "en", "types": ["cross_lingual", "place"], "source": "hand", "split": "dev"}
+{"id": "s8", "text": "expediente 78-0144 detenidos capital", "lang": "es", "types": ["number_date"], "source": "hand", "split": "dev"}
+{"id": "s9", "text": "Circular Confidencial Jefatura Jalapa", "lang": "es", "types": ["ocr_noise", "known_item"], "source": "known_item", "split": "dev"}
+{"id": "s10", "text": "pago de salarios septiembre 1990", "lang": "es", "types": ["number_date"], "source": "hand", "split": "dev"}
+{"id": "s11", "text": "plan de seguridad 20 de octubre Ciudad de Guatemala", "lang": "es", "types": ["place", "number_date"], "source": "hand", "split": "dev"}
+{"id": "s12", "text": "contrabando de armas frontera mexicana", "lang": "es", "types": ["conceptual"], "source": "hand", "split": "dev"}
+{"id": "s13", "text": "estadisticas de detenciones Jalapa 1983", "lang": "es", "types": ["place", "number_date"], "source": "hand", "split": "dev"}
+{"id": "s14", "text": "placa P-45821 vehiculo cuartel", "lang": "es", "types": ["number_date"], "source": "hand", "split": "dev"}
+{"id": "s15", "text": "inventario de fusiles del deposito", "lang": "es", "types": ["conceptual"], "source": "hand", "split": "dev"}

@@ -1,0 +1,55 @@
+{
+  "version": "v1-smoke",
+  "seed": 0,
+  "total": 3,
+  "core_size": 3,
+  "layers": {
+    "100": [
+      1001,
+      1002,
+      1003
+    ],
+    "300": [
+      1001,
+      1002,
+      1003
+    ],
+    "1000": [
+      1001,
+      1002,
+      1003
+    ]
+  },
+  "documents": [
+    {
+      "ahpn_id": 1001,
+      "document_type": "DOC",
+      "page_count": 1,
+      "decade": "1980s",
+      "page_bucket": "1",
+      "date": "1983-03-06",
+      "case_id": null,
+      "layer": "core"
+    },
+    {
+      "ahpn_id": 1002,
+      "document_type": "DOC",
+      "page_count": 1,
+      "decade": "1980s",
+      "page_bucket": "1",
+      "date": "1984-07-12",
+      "case_id": null,
+      "layer": "core"
+    },
+    {
+      "ahpn_id": 1003,
+      "document_type": "PAG",
+      "page_count": 1,
+      "decade": "1970s",
+      "page_bucket": "1",
+      "date": "1978-01-20",
+      "case_id": null,
+      "layer": "core"
+    }
+  ]
+}
