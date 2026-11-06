@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, aliased
 from ahpn.config import (
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_HNSW_EF_SEARCH,
+    DEFAULT_RERANK_CANDIDATES,
     DEFAULT_SEARCH_CANDIDATES,
     DEFAULT_SEARCH_K,
     RRF_K,
@@ -18,10 +19,11 @@ from ahpn.config import (
 from ahpn.db import AHPN_ES_CONFIG
 from ahpn.embed import Embedder
 from ahpn.models import Chunk, ChunkEmbedding, Document
+from ahpn.rerank import Reranker
 
 logger = logging.getLogger(__name__)
 
-SearchMode = Literal["bm25", "vector", "hybrid"]
+SearchMode = Literal["bm25", "bm25_rerank", "vector", "hybrid"]
 
 
 @dataclass(frozen=True)
@@ -86,16 +88,18 @@ def search(
     session: Session,
     query: str,
     *,
-    mode: SearchMode = "hybrid",
+    mode: SearchMode = "bm25_rerank",
     k: int = DEFAULT_SEARCH_K,
     candidates: int = DEFAULT_SEARCH_CANDIDATES,
     filters: SearchFilters | None = None,
     embedder: Embedder | None = None,
     embedding_model: str = DEFAULT_EMBEDDING_MODEL,
+    reranker: Reranker | None = None,
+    rerank_candidates: int = DEFAULT_RERANK_CANDIDATES,
     ef_search: int | None = DEFAULT_HNSW_EF_SEARCH,
     exact_vector: bool = False,
 ) -> list[SearchHit]:
-    """Search chunks with BM25, vector, or hybrid (RRF) ranking."""
+    """Search chunks with BM25, BM25+rerank, vector, or hybrid (RRF) ranking."""
     query = query.strip()
     if not query:
         return []
@@ -105,6 +109,35 @@ def search(
     if mode == "bm25":
         rows = _bm25_search(session, query, limit=pool, filters=filters)
         return _hits_from_rows(rows, mode=mode, k=k)
+
+    if mode == "bm25_rerank":
+        if reranker is None:
+            raise ValueError("bm25_rerank requires a reranker")
+        # Retrieve a wide BM25 pool, then let the reranker order the top N.
+        first_stage = max(k, rerank_candidates, candidates)
+        rows = _bm25_search(session, query, limit=first_stage, filters=filters)
+        shortlist = rows[: max(k, rerank_candidates)]
+        if not shortlist:
+            return []
+        ranked = reranker.rerank(query, [row["text"] for row in shortlist], top_n=min(k, len(shortlist)))
+        hits: list[SearchHit] = []
+        for rank, item in enumerate(ranked[:k], start=1):
+            row = shortlist[item.index]
+            hits.append(
+                SearchHit(
+                    chunk_id=row["chunk_id"],
+                    document_id=row["document_id"],
+                    ahpn_id=row["ahpn_id"],
+                    chunk_index=row["chunk_index"],
+                    text=row["text"],
+                    page_start=row["page_start"],
+                    page_end=row["page_end"],
+                    score=float(item.score),
+                    rank=rank,
+                    mode=mode,
+                )
+            )
+        return hits
 
     if embedder is None:
         raise ValueError("vector and hybrid search require an embedder")
@@ -144,7 +177,7 @@ def search(
     by_id = {row["chunk_id"]: row for row in bm25_rows}
     for row in vector_rows:
         by_id.setdefault(row["chunk_id"], row)
-    hits: list[SearchHit] = []
+    hits = []
     for rank, (chunk_id, score) in enumerate(fused, start=1):
         row = by_id[chunk_id]
         hits.append(

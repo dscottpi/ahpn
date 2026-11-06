@@ -12,6 +12,7 @@ from typing import Any, Sequence
 
 from sqlalchemy.orm import Session
 
+from ahpn.config import DEFAULT_RERANK_CANDIDATES
 from ahpn.embed import Embedder
 from ahpn.evals.metrics import (
     QueryRecord,
@@ -22,6 +23,7 @@ from ahpn.evals.metrics import (
     load_queries,
     page_hits_from_chunk_hits,
 )
+from ahpn.rerank import Reranker
 from ahpn.search import SearchFilters, SearchMode, search
 
 logger = logging.getLogger(__name__)
@@ -39,11 +41,13 @@ class EvalRunResult:
 
 @dataclass
 class EvalConfig:
-    mode: SearchMode = "hybrid"
+    mode: SearchMode = "bm25_rerank"
     split: str = "dev"
     k: int = 100
     candidates: int = 100
+    rerank_candidates: int = DEFAULT_RERANK_CANDIDATES
     embedding_model: str = ""
+    rerank_model: str = ""
     department: str | None = None
     exact_vector: bool = False
     ef_search: int | None = None
@@ -70,6 +74,7 @@ def run_eval(
     embedder: Embedder | None,
     config: EvalConfig,
     filters: SearchFilters | None = None,
+    reranker: Reranker | None = None,
 ) -> EvalRunResult:
     queries = filter_queries(load_queries(queries_path), split=config.split)
     qrels = load_qrels(qrels_path)
@@ -92,6 +97,8 @@ def run_eval(
             filters=filters,
             embedder=embedder,
             embedding_model=config.embedding_model or (embedder.model if embedder else ""),
+            reranker=reranker,
+            rerank_candidates=config.rerank_candidates,
             ef_search=config.ef_search,
             exact_vector=config.exact_vector,
         )

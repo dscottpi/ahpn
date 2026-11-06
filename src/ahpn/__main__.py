@@ -19,6 +19,8 @@ from ahpn.config import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_JUDGE_MODEL,
+    DEFAULT_RERANK_CANDIDATES,
+    DEFAULT_RERANK_MODEL,
     DEFAULT_REQUEST_DELAY_SECONDS,
     DEFAULT_SEARCH_K,
     EXAMPLE_DOCUMENT_ID,
@@ -51,6 +53,7 @@ from ahpn.ingest import ingest_documents, project_costs
 from ahpn.llm import BedrockLlm, FakeLlm
 from ahpn.models import Chunk, Document, OcrLine, Page
 from ahpn.ocr import TextractOcr
+from ahpn.rerank import BedrockReranker, FakeReranker
 from ahpn.sample import (
     fetch_document_candidates,
     load_sample,
@@ -61,6 +64,8 @@ from ahpn.sample import (
 from ahpn.scrape import scrape_document
 from ahpn.search import SearchFilters, search
 from ahpn.storage import DocumentStore, LocalDocumentStore, S3DocumentStore
+
+_SEARCH_MODES = ("bm25", "bm25_rerank", "vector", "hybrid")
 
 logger = logging.getLogger("ahpn")
 
@@ -109,13 +114,22 @@ def main(argv: list[str] | None = None) -> int:
     embed.add_argument("--document-id", type=int, action="append", dest="document_ids")
     embed.add_argument("--force", action="store_true")
 
-    search_cmd = subparsers.add_parser("search", help="Search indexed chunks (bm25|vector|hybrid).")
+    search_cmd = subparsers.add_parser(
+        "search",
+        help="Search indexed chunks (bm25|bm25_rerank|vector|hybrid).",
+    )
     _add_database_arg(search_cmd)
     search_cmd.add_argument("query")
-    search_cmd.add_argument("--mode", choices=("bm25", "vector", "hybrid"), default="hybrid")
+    search_cmd.add_argument("--mode", choices=_SEARCH_MODES, default="bm25_rerank")
     search_cmd.add_argument("--k", type=int, default=DEFAULT_SEARCH_K)
+    search_cmd.add_argument("--rerank-candidates", type=int, default=DEFAULT_RERANK_CANDIDATES)
     search_cmd.add_argument("--model", default=os.environ.get("AHPN_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL))
+    search_cmd.add_argument(
+        "--rerank-model",
+        default=os.environ.get("AHPN_RERANK_MODEL", DEFAULT_RERANK_MODEL),
+    )
     search_cmd.add_argument("--fake-embed", action="store_true")
+    search_cmd.add_argument("--fake-rerank", action="store_true")
     search_cmd.add_argument("--department")
     search_cmd.add_argument("--date-from", type=_parse_date)
     search_cmd.add_argument("--date-to", type=_parse_date)
@@ -157,11 +171,17 @@ def main(argv: list[str] | None = None) -> int:
     eval_run.add_argument("--queries", type=Path, default=Path("evals/queries/v1.jsonl"))
     eval_run.add_argument("--qrels", type=Path, default=Path("evals/qrels/v1.tsv"))
     eval_run.add_argument("--out-dir", type=Path, default=Path("evals/runs"))
-    eval_run.add_argument("--mode", choices=("bm25", "vector", "hybrid"), default="hybrid")
+    eval_run.add_argument("--mode", choices=_SEARCH_MODES, default="bm25_rerank")
     eval_run.add_argument("--split", default="dev")
     eval_run.add_argument("--k", type=int, default=100)
+    eval_run.add_argument("--rerank-candidates", type=int, default=DEFAULT_RERANK_CANDIDATES)
     eval_run.add_argument("--model", default=os.environ.get("AHPN_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL))
+    eval_run.add_argument(
+        "--rerank-model",
+        default=os.environ.get("AHPN_RERANK_MODEL", DEFAULT_RERANK_MODEL),
+    )
     eval_run.add_argument("--fake-embed", action="store_true")
+    eval_run.add_argument("--fake-rerank", action="store_true")
     eval_run.add_argument("--level", choices=("page", "document"), default="page")
 
     eval_compare = eval_sub.add_parser("compare", help="Compare two eval JSON reports.")
@@ -296,6 +316,9 @@ def _search(args: argparse.Namespace) -> None:
             model=args.model,
             region=os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION"),
         )
+    reranker = None
+    if args.mode == "bm25_rerank":
+        reranker = _reranker_from_args(args)
     filters = SearchFilters(department=args.department, date_from=args.date_from, date_to=args.date_to)
     with session_factory(args.database_url)() as session:
         hits = search(
@@ -305,6 +328,8 @@ def _search(args: argparse.Namespace) -> None:
             k=args.k,
             filters=filters,
             embedder=embedder,
+            reranker=reranker,
+            rerank_candidates=args.rerank_candidates,
             exact_vector=args.exact_vector,
         )
     for hit in hits:
@@ -405,6 +430,7 @@ def _eval(args: argparse.Namespace) -> None:
         embedder = None
         if args.mode in {"vector", "hybrid"}:
             embedder = _embedder_from_args(args)
+        reranker = _reranker_from_args(args) if args.mode == "bm25_rerank" else None
         with session_factory(args.database_url)() as session:
             result = run_eval(
                 session,
@@ -412,11 +438,14 @@ def _eval(args: argparse.Namespace) -> None:
                 qrels_path=args.qrels,
                 out_dir=args.out_dir,
                 embedder=embedder,
+                reranker=reranker,
                 config=EvalConfig(
                     mode=args.mode,
                     split=args.split,
                     k=args.k,
+                    rerank_candidates=args.rerank_candidates,
                     embedding_model=args.model,
+                    rerank_model=args.rerank_model,
                     level=args.level,
                 ),
             )
@@ -572,6 +601,16 @@ def _embedder_from_args(args: argparse.Namespace):
     if getattr(args, "fake", False) or getattr(args, "fake_embed", False):
         return FakeEmbedder(model=model)
     return BedrockEmbedder(
+        model=model,
+        region=os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION"),
+    )
+
+
+def _reranker_from_args(args: argparse.Namespace):
+    model = getattr(args, "rerank_model", DEFAULT_RERANK_MODEL)
+    if getattr(args, "fake_rerank", False):
+        return FakeReranker(model=model)
+    return BedrockReranker(
         model=model,
         region=os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION"),
     )

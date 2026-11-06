@@ -20,9 +20,11 @@ DEFAULT_EMBEDDING_DIMS = 1024
 FALLBACK_EMBEDDING_MODEL = "amazon.titan-embed-text-v2:0"
 DEFAULT_JUDGE_MODEL = "anthropic.claude-sonnet-4-20250514-v1:0"
 DEFAULT_QUERY_GEN_MODEL = "anthropic.claude-sonnet-4-20250514-v1:0"
+DEFAULT_RERANK_MODEL = "cohere.rerank-v3-5:0"
 
 RRF_K = 60
 DEFAULT_SEARCH_CANDIDATES = 100
+DEFAULT_RERANK_CANDIDATES = 50
 DEFAULT_SEARCH_K = 10
 
 # Approximate HNSW defaults; tune with `ahpn eval scale`.

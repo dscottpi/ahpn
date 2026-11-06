@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from ahpn.embed import FakeEmbedder, embed_chunks
 from ahpn.models import Base, Chunk, Document
+from ahpn.rerank import FakeReranker
 from ahpn.search import SearchFilters, reciprocal_rank_fusion, search
 
 
@@ -93,6 +94,37 @@ def test_bm25_and_hybrid_find_relevant_chunk() -> None:
     assert hybrid
     assert hybrid[0].ahpn_id == 1
     assert hybrid[0].page_keys() == ["1:1"]
+
+
+def test_bm25_rerank_reorders_with_fake_reranker() -> None:
+    session = _session()
+    _seed(session)
+    hits = search(
+        session,
+        "detenciones arma Jalapa",
+        mode="bm25_rerank",
+        k=5,
+        rerank_candidates=50,
+        reranker=FakeReranker(),
+    )
+    assert hits
+    assert hits[0].ahpn_id == 1
+    assert hits[0].mode == "bm25_rerank"
+    assert hits[0].rank == 1
+
+
+def test_fake_reranker_prefers_overlap() -> None:
+    reranker = FakeReranker()
+    ranked = reranker.rerank(
+        "Jalapa detenciones",
+        [
+            "Nomina de personal del Cuarto Cuerpo",
+            "Detenciones en Jalapa por arma",
+        ],
+        top_n=2,
+    )
+    assert ranked[0].index == 1
+    assert ranked[0].score > ranked[1].score
 
 
 def test_department_filter_restricts_results() -> None:
