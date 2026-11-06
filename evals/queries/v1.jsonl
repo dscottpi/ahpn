@@ -13,3 +13,5 @@
 {"id": "s13", "text": "estadisticas de detenciones Jalapa 1983", "lang": "es", "types": ["place", "number_date"], "source": "hand", "split": "dev"}
 {"id": "s14", "text": "placa P-45821 vehiculo cuartel", "lang": "es", "types": ["number_date"], "source": "hand", "split": "dev"}
 {"id": "s15", "text": "inventario de fusiles del deposito", "lang": "es", "types": ["conceptual"], "source": "hand", "split": "dev"}
+{"id": "s16", "text": "Rosa Maria Gutierrez vehiculo placa C-88210", "lang": "es", "types": ["name", "number_date"], "source": "hand", "split": "dev"}
+{"id": "s17", "text": "autoriza el traslado de 20 agentes", "lang": "es", "types": ["known_item"], "source": "known_item", "split": "dev"}

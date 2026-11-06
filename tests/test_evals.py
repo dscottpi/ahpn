@@ -27,6 +27,21 @@ def test_page_hits_from_chunk_hits_dedupes_pages() -> None:
     assert [docno for docno, _ in pages] == ["10:1", "10:2"]
 
 
+def test_page_hits_from_multi_page_chunk_prefer_overlapping_jpeg() -> None:
+    hits = [SearchHit(1, 1, 1021, 0, "chunk spanning pages", 1, 3, 0.9, 1, "bm25")]
+    page_texts = {
+        "1021:1": "Portada del expediente",
+        "1021:2": "Continuacion del informe",
+        "1021:3": "Testigo clave Rosa Maria Gutierrez placa C-88210",
+    }
+    pages = page_hits_from_chunk_hits(
+        hits,
+        query="Rosa Maria Gutierrez placa C-88210",
+        page_texts=page_texts,
+    )
+    assert [docno for docno, _ in pages] == ["1021:3"]
+
+
 def test_evaluate_run_perfect_ranking() -> None:
     qrels = {"q1": {"1:1": 3, "2:1": 1}}
     run = {"q1": [("1:1", 1.0), ("2:1", 0.5), ("3:1", 0.1)]}

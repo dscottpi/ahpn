@@ -23,6 +23,7 @@ from ahpn.evals.metrics import (
     load_queries,
     page_hits_from_chunk_hits,
 )
+from ahpn.evals.pages import assemble_page_text, corpus_page_stats, parse_page_docno
 from ahpn.rerank import Reranker
 from ahpn.search import SearchFilters, SearchMode, search
 
@@ -51,7 +52,9 @@ class EvalConfig:
     department: str | None = None
     exact_vector: bool = False
     ef_search: int | None = None
+    # Default unit is the page image (one JPEG). Document-level is a collapsed view.
     level: str = "page"  # page | document
+    relevance_unit: str = "page_image"
 
 
 def git_sha() -> str | None:
@@ -116,7 +119,18 @@ def run_eval(
                 unique.append((docno, score))
             run[query.id] = unique
         else:
-            run[query.id] = page_hits_from_chunk_hits(hits)
+            page_texts: dict[str, str] = {}
+            for hit in hits:
+                for key in hit.page_keys():
+                    if key in page_texts:
+                        continue
+                    ref = parse_page_docno(key)
+                    page_texts[key] = assemble_page_text(session, ref.ahpn_id, ref.page_number)
+            run[query.id] = page_hits_from_chunk_hits(
+                hits,
+                query=query.text,
+                page_texts=page_texts,
+            )
 
     metrics = evaluate_run(qrels, run)
     by_type = evaluate_by_group(queries, qrels, run, group="type")
@@ -133,16 +147,23 @@ def run_eval(
     run_path = out_dir / f"{stem}.run.tsv"
     json_path = out_dir / f"{stem}.json"
     _write_trec_run(run_path, run, tag=config.mode)
+    page_stats = corpus_page_stats(session)
     payload = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "git_sha": git_sha(),
         "config": asdict(config),
+        "relevance_unit": "page_image" if config.level == "page" else "document",
+        "corpus": page_stats,
         "metrics": metrics,
         "by_type": by_type,
         "by_lang": by_lang,
         "latency_ms": latency,
         "n_queries": len(queries),
         "run_file": str(run_path),
+        "notes": (
+            "AHPN documents are JPEG page images (or ordered lists of JPEGs). "
+            "Default metrics score page images via ahpn_id:page qrels."
+        ),
     }
     json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     logger.info("wrote %s", json_path)

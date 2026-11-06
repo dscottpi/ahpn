@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from ahpn.chunk import chunk_lines
 from ahpn.embed import Embedder, embed_chunks
+from ahpn.evals.pages import is_jpeg_content_type, page_image_key
 from ahpn.models import Chunk, Document, OcrLine, Page
 from ahpn.ocr import TextLine
 
@@ -19,20 +20,29 @@ def load_smoke_corpus(
     embedder: Embedder | None = None,
     target_chars: int = 800,
     overlap_chars: int = 100,
-) -> int:
-    """Load synthetic OCR-line documents for the committed smoke eval."""
-    count = 0
+) -> dict[str, int]:
+    """Load synthetic OCR-line documents for the committed smoke eval.
+
+    Each document is modeled as an ordered list of JPEG page images. Fixture
+    pages may include ``image_key`` / ``content_type``; defaults are
+    ``{ahpn_id}/pages/NNNN.jpg`` and ``image/jpeg``.
+    """
+    n_documents = 0
+    n_pages = 0
     for line in documents_path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         row = json.loads(line)
         ahpn_id = int(row["ahpn_id"])
+        pages = list(row.get("pages") or [])
+        if not pages:
+            raise ValueError(f"document {ahpn_id} has no page images")
         now = datetime.now(timezone.utc)
         document = Document(
             ahpn_id=ahpn_id,
             source_page=f"https://ahpn.lib.utexas.edu/document/{ahpn_id}",
             visibility="PUB",
-            page_count=len(row.get("pages") or []),
+            page_count=len(pages),
             document_type=row.get("document_type"),
             metadata_json={
                 "document": {"date": row.get("date"), "document_type": row.get("document_type")},
@@ -47,16 +57,25 @@ def load_smoke_corpus(
         session.add(document)
         session.flush()
         text_lines: list[TextLine] = []
-        for page in row.get("pages") or []:
+        for page in pages:
+            page_number = int(page["page_number"])
+            content_type = str(page.get("content_type") or "image/jpeg")
+            if not is_jpeg_content_type(content_type):
+                raise ValueError(
+                    f"document {ahpn_id} page {page_number} must be a JPEG "
+                    f"(got content_type={content_type!r})"
+                )
+            image_key = str(page.get("image_key") or page_image_key(ahpn_id, page_number))
             page_row = Page(
                 document_id=document.id,
-                page_number=int(page["page_number"]),
-                image_key=f"{ahpn_id}/pages/{int(page['page_number']):04d}.jpg",
-                content_type="image/jpeg",
-                byte_count=0,
+                page_number=page_number,
+                image_key=image_key,
+                content_type=content_type.split(";", 1)[0].strip().lower(),
+                byte_count=int(page.get("byte_count") or 0),
             )
             session.add(page_row)
             session.flush()
+            n_pages += 1
             for index, text in enumerate(page.get("lines") or []):
                 session.add(
                     OcrLine(
@@ -72,7 +91,7 @@ def load_smoke_corpus(
                 )
                 text_lines.append(
                     TextLine(
-                        page_number=int(page["page_number"]),
+                        page_number=page_number,
                         line_index=index,
                         text=text,
                         confidence=95.0,
@@ -96,8 +115,8 @@ def load_smoke_corpus(
             )
             for draft in drafts
         )
-        count += 1
+        n_documents += 1
     session.commit()
     if embedder is not None:
         embed_chunks(session, embedder)
-    return count
+    return {"n_documents": n_documents, "n_pages": n_pages, "n_jpeg_pages": n_pages}

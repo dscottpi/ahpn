@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 from ahpn.chunk import chunk_stored_document
 from ahpn.client import AhpnClient, AhpnError, RestrictedDocumentError
 from ahpn.embed import EmbedResult, Embedder, embed_chunks
-from ahpn.models import Chunk, Document
+from ahpn.evals.pages import is_jpeg_content_type
+from ahpn.models import Chunk, Document, Page
 from ahpn.ocr import OcrEngine
 from ahpn.scrape import scrape_document
 from ahpn.storage import DocumentStore
@@ -25,7 +26,8 @@ logger = logging.getLogger(__name__)
 class DocumentIngestStats:
     ahpn_id: int
     status: str
-    pages: int = 0
+    pages: int = 0  # page images (usually JPEGs)
+    jpeg_pages: int = 0
     chunks: int = 0
     pages_ocred: int = 0
     pages_skipped: int = 0
@@ -40,14 +42,16 @@ class IngestReport:
     finished_at: str | None = None
     documents: list[DocumentIngestStats] = field(default_factory=list)
     total_pages: int = 0
+    total_jpeg_pages: int = 0
     total_chunks: int = 0
-    total_textract_pages: int = 0
+    total_textract_pages: int = 0  # one Textract call per page image
     total_embedded_chunks: int = 0
 
     def add(self, stats: DocumentIngestStats) -> None:
         self.documents.append(stats)
         if stats.status == "ok":
             self.total_pages += stats.pages
+            self.total_jpeg_pages += stats.jpeg_pages
             self.total_chunks += stats.chunks
             self.total_textract_pages += stats.pages_ocred
             self.total_embedded_chunks += stats.chunks_embedded
@@ -117,7 +121,10 @@ def ingest_documents(
             document = session.scalar(select(Document).where(Document.ahpn_id == ahpn_id))
             if document is None:
                 raise AhpnError(f"document {ahpn_id} missing after chunk")
-            stats.pages = int(document.page_count or 0)
+            page_rows = list(session.scalars(select(Page).where(Page.document_id == document.id)))
+            # A document is one JPEG or an ordered list of JPEGs — count stored page images.
+            stats.pages = len(page_rows) or int(document.page_count or 0)
+            stats.jpeg_pages = sum(1 for page in page_rows if is_jpeg_content_type(page.content_type))
             stats.chunks = len(
                 list(session.scalars(select(Chunk.id).where(Chunk.document_id == document.id)))
             )
@@ -174,7 +181,11 @@ def project_costs(
     textract_per_1k_pages: float = 1.50,
     embed_per_1k_chunks: float = 0.10,
 ) -> dict[str, float]:
-    """Extrapolate OCR/embed cost from a measured sample to a target corpus size."""
+    """Extrapolate OCR/embed cost from a measured sample to a target corpus size.
+
+    ``sample_pages`` is the number of page images (JPEGs). Textract is billed
+    per page image, not per document.
+    """
     if sample_docs <= 0:
         raise ValueError("sample_docs must be positive")
     pages_per_doc = sample_pages / sample_docs
@@ -182,9 +193,11 @@ def project_costs(
     projected_pages = pages_per_doc * target_docs
     projected_chunks = chunks_per_doc * target_docs
     return {
+        "unit_note": "pages = JPEG page images; Textract is per page image",
         "pages_per_doc": pages_per_doc,
         "chunks_per_doc": chunks_per_doc,
-        "projected_pages": projected_pages,
+        "projected_page_images": projected_pages,
+        "projected_pages": projected_pages,  # alias kept for older callers
         "projected_chunks": projected_chunks,
         "projected_textract_usd": (projected_pages / 1000.0) * textract_per_1k_pages,
         "projected_embed_usd": (projected_chunks / 1000.0) * embed_per_1k_chunks,

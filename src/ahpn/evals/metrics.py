@@ -48,7 +48,11 @@ def write_queries(path: Path, queries: Sequence[QueryRecord]) -> None:
 
 
 def load_qrels(path: Path) -> dict[str, dict[str, int]]:
-    """Load TREC qrels: qid 0 docno grade. docno is `ahpn_id:page`."""
+    """Load TREC qrels: qid 0 docno grade.
+
+    Default docno is a page image id ``ahpn_id:page_number``. Each AHPN
+    document is one JPEG or an ordered list of JPEGs; judgments are per page.
+    """
     qrels: dict[str, dict[str, int]] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -71,12 +75,32 @@ def write_qrels(path: Path, qrels: dict[str, dict[str, int]]) -> None:
     path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
 
-def page_hits_from_chunk_hits(hits: Sequence[SearchHit]) -> list[tuple[str, float]]:
-    """Collapse chunk hits to unique page keys, keeping the best score per page."""
+def page_hits_from_chunk_hits(
+    hits: Sequence[SearchHit],
+    *,
+    query: str | None = None,
+    page_texts: dict[str, str] | None = None,
+) -> list[tuple[str, float]]:
+    """Collapse chunk hits to unique page-image keys, keeping the best score per page.
+
+    Chunks may span multiple JPEG pages. When ``query`` and ``page_texts`` are
+    provided, a multi-page chunk only credits pages whose OCR overlaps the
+    query tokens. That keeps relevance tied to the page image, not the whole
+    parent document.
+    """
+    query_tokens = {token for token in (query or "").lower().split() if token}
     best: dict[str, float] = {}
     order: list[str] = []
     for hit in hits:
-        for key in hit.page_keys():
+        keys = list(hit.page_keys())
+        if query_tokens and page_texts is not None and len(keys) > 1:
+            matched = [
+                key
+                for key in keys
+                if query_tokens.intersection((page_texts.get(key) or "").lower().split())
+            ]
+            keys = matched or keys
+        for key in keys:
             if key not in best:
                 order.append(key)
                 best[key] = hit.score

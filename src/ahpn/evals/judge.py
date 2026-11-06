@@ -10,19 +10,22 @@ from ahpn.llm import LlmClient, parse_json_response
 
 logger = logging.getLogger(__name__)
 
-JUDGE_SYSTEM = """You grade whether an archive page is relevant to a search query.
+JUDGE_SYSTEM = """You grade whether one archive page image is relevant to a search query.
+Each AHPN document is a JPEG page image or an ordered list of JPEG page images.
+Grade ONLY the provided page image text, not the rest of the document.
 Return ONLY JSON: {"grade": <0-3>, "rationale": "<short>"}.
 Grades:
 0 = not relevant
 1 = marginally related (same department/era, no answer)
 2 = partially relevant (related facts, incomplete answer)
-3 = highly relevant (page answers or directly documents the query)
+3 = highly relevant (this page answers or directly documents the query)
 The archive is Guatemalan National Police records (AHPN), mostly Spanish."""
 
 JUDGE_PROMPT = """Query ({lang}): {query}
 
-Page id: {page_key}
-Page text:
+Page image id: {page_key}
+(page image = one JPEG; multi-page documents are multiple JPEGs)
+Page OCR text:
 \"\"\"
 {page_text}
 \"\"\"
