@@ -1,11 +1,12 @@
 [project]
 name = "ahpn"
 version = "0.1.0"
-description = "Scrape, OCR, and chunk public documents from the AHPN digital archive."
+description = "Scrape, OCR, chunk, and search public documents from the AHPN digital archive."
 requires-python = ">=3.13"
 dependencies = [
     "boto3>=1.35",
     "httpx>=0.28",
+    "pgvector>=0.3",
     "psycopg[binary]>=3.2",
     "sqlalchemy>=2.0",
 ]
@@ -14,17 +15,27 @@ dependencies = [
 s3 = [
     "boto3>=1.35",
 ]
+evals = [
+    "jiwer>=3.0",
+    "ranx>=0.3",
+]
 
 [project.scripts]
 ahpn = "ahpn.__main__:main"
 
 [dependency-groups]
 dev = [
+    "jiwer>=3.0",
     "pytest>=8.3",
+    "ranx>=0.3",
+    "testcontainers[postgres]>=4.8",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: tests that need Docker/Postgres with pgvector",
+]
 
 [build-system]
 requires = ["hatchling"]
