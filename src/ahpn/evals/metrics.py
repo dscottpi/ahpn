@@ -110,20 +110,6 @@ def page_hits_from_chunk_hits(
     return [(key, best[key]) for key in order]
 
 
-def document_hits_from_chunk_hits(hits: Sequence[SearchHit]) -> list[tuple[str, float]]:
-    best: dict[str, float] = {}
-    order: list[str] = []
-    for hit in hits:
-        key = str(hit.ahpn_id)
-        if key not in best:
-            order.append(key)
-            best[key] = hit.score
-        else:
-            best[key] = max(best[key], hit.score)
-    order.sort(key=lambda key: (-best[key], key))
-    return [(key, best[key]) for key in order]
-
-
 def filter_queries(
     queries: Sequence[QueryRecord],
     *,
@@ -158,13 +144,12 @@ def evaluate_run(
     metrics: Sequence[str] | None = None,
 ) -> dict[str, float]:
     """Score a run with ranx. Returns mean metrics."""
-    metrics = list(metrics or ("recall@10", "recall@50", "recall@100", "ndcg@10", "mrr@10"))
+    metrics = list(metrics or ("recall@10", "ndcg@10", "mrr@10"))
     try:
         from ranx import evaluate
     except ImportError as exc:
         raise RuntimeError("ranx is required for eval metrics; install the evals extra") from exc
 
-    # Keep only queries present in both.
     shared = sorted(set(qrels) & set(run))
     if not shared:
         return {metric: 0.0 for metric in metrics}
@@ -172,27 +157,3 @@ def evaluate_run(
     trimmed_run = {qid: dict(run[qid]) for qid in shared}
     scores = evaluate(qrels_to_ranx(trimmed_qrels), run_to_ranx(trimmed_run), list(metrics))
     return {metric: float(scores[metric]) for metric in metrics}
-
-
-def evaluate_by_group(
-    queries: Sequence[QueryRecord],
-    qrels: dict[str, dict[str, int]],
-    run: dict[str, list[tuple[str, float]]],
-    *,
-    group: str,
-) -> dict[str, dict[str, float]]:
-    """group is 'lang' or 'type'."""
-    buckets: dict[str, list[str]] = {}
-    for query in queries:
-        if query.id not in qrels or query.id not in run:
-            continue
-        keys = [query.lang] if group == "lang" else (query.types or ["untagged"])
-        for key in keys:
-            buckets.setdefault(key, []).append(query.id)
-    return {
-        key: evaluate_run(
-            {qid: qrels[qid] for qid in qids},
-            {qid: run[qid] for qid in qids},
-        )
-        for key, qids in sorted(buckets.items())
-    }

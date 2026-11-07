@@ -7,7 +7,6 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from ahpn.chunk import chunk_lines
-from ahpn.embed import Embedder, embed_chunks
 from ahpn.evals.pages import is_jpeg_content_type, page_image_key
 from ahpn.models import Chunk, Document, OcrLine, Page
 from ahpn.ocr import TextLine
@@ -17,7 +16,6 @@ def load_smoke_corpus(
     session: Session,
     *,
     documents_path: Path,
-    embedder: Embedder | None = None,
     target_chars: int = 800,
     overlap_chars: int = 100,
 ) -> dict[str, int]:
@@ -117,6 +115,4 @@ def load_smoke_corpus(
         )
         n_documents += 1
     session.commit()
-    if embedder is not None:
-        embed_chunks(session, embedder)
     return {"n_documents": n_documents, "n_pages": n_pages, "n_jpeg_pages": n_pages}

@@ -8,7 +8,6 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
 from ahpn.db import ensure_search_schema
-from ahpn.embed import FakeEmbedder, embed_chunks
 from ahpn.models import Base, Chunk, Document
 from ahpn.search import SearchFilters, search
 
@@ -16,7 +15,6 @@ pytestmark = pytest.mark.integration
 
 
 def _postgres_url() -> str | None:
-    # Prefer an explicit test DB. Never truncate the developer's main `ahpn` database.
     candidates = []
     if os.environ.get("AHPN_TEST_DATABASE_URL"):
         candidates.append(os.environ["AHPN_TEST_DATABASE_URL"])
@@ -41,12 +39,11 @@ def _maybe_testcontainers_url() -> str | None:
     except ImportError:
         return None
     try:
-        postgres = PostgresContainer("pgvector/pgvector:pg16")
+        postgres = PostgresContainer("postgres:16")
         postgres.start()
     except Exception:  # noqa: BLE001 - Docker unavailable
         return None
     url = postgres.get_connection_url().replace("psycopg2", "psycopg")
-    # Keep container alive for the test module via attribute on function.
     _maybe_testcontainers_url.container = postgres  # type: ignore[attr-defined]
     return url
 
@@ -55,10 +52,9 @@ def _maybe_testcontainers_url() -> str | None:
 def pg_session():
     url = _postgres_url() or _maybe_testcontainers_url()
     if url is None:
-        pytest.skip("Postgres with pgvector is not available")
+        pytest.skip("Postgres is not available")
     engine = create_engine(url)
     with engine.begin() as conn:
-        conn.execute(text("DROP TABLE IF EXISTS chunk_embeddings CASCADE"))
         conn.execute(text("DROP TABLE IF EXISTS chunks CASCADE"))
         conn.execute(text("DROP TABLE IF EXISTS ocr_lines CASCADE"))
         conn.execute(text("DROP TABLE IF EXISTS pages CASCADE"))
@@ -72,9 +68,9 @@ def pg_session():
     engine.dispose()
 
 
-def _seed(session: Session) -> FakeEmbedder:
+def _seed(session: Session) -> None:
     session.rollback()
-    session.execute(text("TRUNCATE chunk_embeddings, chunks, ocr_lines, pages, documents RESTART IDENTITY CASCADE"))
+    session.execute(text("TRUNCATE chunks, ocr_lines, pages, documents RESTART IDENTITY CASCADE"))
     session.commit()
     docs = [
         Document(
@@ -131,41 +127,30 @@ def _seed(session: Session) -> FakeEmbedder:
         ]
     )
     session.commit()
-    embedder = FakeEmbedder(model="fake-embed-v1")
-    embed_chunks(session, embedder)
-    return embedder
 
 
 def test_spanish_stemming_and_accents(pg_session: Session) -> None:
-    embedder = _seed(pg_session)
-    hits = search(pg_session, "detencion", mode="bm25", k=5, embedder=embedder)
+    _seed(pg_session)
+    hits = search(pg_session, "detencion", mode="bm25", k=5)
     assert hits and hits[0].ahpn_id == 501
-    hits = search(pg_session, "Policia", mode="bm25", k=5, embedder=embedder)
+    hits = search(pg_session, "Policia", mode="bm25", k=5)
     assert hits and hits[0].ahpn_id == 502
 
 
 def test_self_retrieval_exact_phrase(pg_session: Session) -> None:
-    embedder = _seed(pg_session)
+    _seed(pg_session)
     phrase = "Informe de detenciones por portación de arma en Jalapa."
-    hits = search(pg_session, phrase, mode="bm25", k=1, embedder=embedder)
+    hits = search(pg_session, phrase, mode="bm25", k=1)
     assert hits[0].ahpn_id == 501
 
 
 def test_department_filter(pg_session: Session) -> None:
-    embedder = _seed(pg_session)
+    _seed(pg_session)
     hits = search(
         pg_session,
         "Policia",
         mode="bm25",
         k=5,
         filters=SearchFilters(department="DIRECCION GENERAL"),
-        embedder=embedder,
     )
     assert hits and all(hit.ahpn_id == 502 for hit in hits)
-
-
-def test_hnsw_and_exact_agree_on_small_set(pg_session: Session) -> None:
-    embedder = _seed(pg_session)
-    exact = search(pg_session, "detenciones Jalapa", mode="vector", k=2, embedder=embedder, exact_vector=True)
-    approx = search(pg_session, "detenciones Jalapa", mode="vector", k=2, embedder=embedder, exact_vector=False)
-    assert [hit.chunk_id for hit in exact] == [hit.chunk_id for hit in approx]

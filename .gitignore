@@ -9,5 +9,3 @@ data/
 .env
 .DS_Store
 evals/runs/
-evals/judge_cache/
-evals/corpus/ingest_report.json

@@ -5,10 +5,9 @@ from datetime import datetime, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from ahpn.embed import FakeEmbedder, embed_chunks
 from ahpn.models import Base, Chunk, Document
 from ahpn.rerank import FakeReranker
-from ahpn.search import SearchFilters, reciprocal_rank_fusion, search
+from ahpn.search import SearchFilters, search
 
 
 def _session() -> Session:
@@ -17,7 +16,7 @@ def _session() -> Session:
     return Session(engine)
 
 
-def _seed(session: Session) -> FakeEmbedder:
+def _seed(session: Session) -> None:
     docs = [
         Document(
             ahpn_id=1,
@@ -73,27 +72,15 @@ def _seed(session: Session) -> FakeEmbedder:
         ]
     )
     session.commit()
-    embedder = FakeEmbedder(model="fake-embed-v1", dims=32)
-    embed_chunks(session, embedder)
-    return embedder
 
 
-def test_reciprocal_rank_fusion_prefers_shared_top_hits() -> None:
-    fused = reciprocal_rank_fusion([[10, 20, 30], [20, 40, 10]], k=60, limit=3)
-    assert fused[0][0] == 20
-    assert [item for item, _score in fused] == [20, 10, 30] or fused[0][0] == 20
-
-
-def test_bm25_and_hybrid_find_relevant_chunk() -> None:
+def test_bm25_finds_relevant_chunk() -> None:
     session = _session()
-    embedder = _seed(session)
-    bm25 = search(session, "detenciones arma Jalapa", mode="bm25", k=5)
-    assert bm25
-    assert bm25[0].ahpn_id == 1
-    hybrid = search(session, "detenciones arma Jalapa", mode="hybrid", k=5, embedder=embedder)
-    assert hybrid
-    assert hybrid[0].ahpn_id == 1
-    assert hybrid[0].page_keys() == ["1:1"]
+    _seed(session)
+    hits = search(session, "detenciones arma Jalapa", mode="bm25", k=5)
+    assert hits
+    assert hits[0].ahpn_id == 1
+    assert hits[0].page_keys() == ["1:1"]
 
 
 def test_bm25_rerank_reorders_with_fake_reranker() -> None:
@@ -129,14 +116,13 @@ def test_fake_reranker_prefers_overlap() -> None:
 
 def test_department_filter_restricts_results() -> None:
     session = _session()
-    embedder = _seed(session)
+    _seed(session)
     hits = search(
         session,
         "Policia",
         mode="bm25",
         k=5,
         filters=SearchFilters(department="DIRECCION GENERAL"),
-        embedder=embedder,
     )
     assert hits
     assert all(hit.ahpn_id == 2 for hit in hits)
