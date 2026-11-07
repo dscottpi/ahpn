@@ -1,4 +1,4 @@
-"""Retrieval and OCR evaluation harness for AHPN.
+"""Retrieval evaluation harness for AHPN.
 
 Relevance is judged per page image (JPEG). Multi-page documents are ordered
 lists of page images; chunks may span pages but qrels stay at ``ahpn_id:page``.

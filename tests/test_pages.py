@@ -44,7 +44,6 @@ def test_smoke_corpus_pages_are_jpegs_and_multi_page_recall() -> None:
     assert stats["multi_page_documents"] >= 2
     assert stats["unit"] == "page_image"
 
-    # Content unique to page 3 of a 3-page JPEG document must surface as 1021:3.
     hits = search(
         session,
         "Rosa Maria Gutierrez placa C-88210",
@@ -55,5 +54,4 @@ def test_smoke_corpus_pages_are_jpegs_and_multi_page_recall() -> None:
     assert hits
     assert "1021:3" in hits[0].page_keys()
     assert assemble_page_text(session, 1021, 3).find("Rosa Maria Gutierrez") >= 0
-    # Page 1 of the same document should not contain that witness text.
     assert "Rosa Maria" not in assemble_page_text(session, 1021, 1)

@@ -1,8 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   AHPN proof of concept. One Fargate task scrapes a public document into S3,
-  reads the pages with Textract, and stores OCR lines, chunks, and pgvector
-  embeddings in RDS Postgres (enable the vector extension on the instance).
+  reads the pages with Textract, and stores OCR lines and chunks in RDS Postgres.
+
 
 Parameters:
   VpcId:
